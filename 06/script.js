@@ -4,38 +4,52 @@
 // Source code for tone.js: https://github.com/Tonejs/Tone.js
 // Documentation: https://tonejs.github.io/docs/14.7.58/
 
-var methodOptions = {
+const methodOptions = {
   'ILD': 'pan',
-  'ITD': 'haas'
+  'ITD': 'haas',
+  'Both': 'both'
 };
-var sampleSounds = {
+
+const controlMode = {
+  'GUI': 'gui',
+  'WASD': 'wasd'
+};
+
+const sampleSounds = {
   'A': "https://tonejs.github.io/audio/berklee/guitar_pick_1.mp3",
   'B': "https://tonejs.github.io/audio/drum-samples/Bongos/tom1.mp3",
   'C': "https://tonejs.github.io/audio/berklee/Train.mp3",
   'D': "https://tonejs.github.io/audio/berklee/ambient_rain.mp3"
-}
-var params = {
+};
+const params = {
   'showAnalyzer': true,
-  'showSpatialAudioScene': false,
+  'showSpatialAudioScene': true,
+  'controlMode': controlMode.GUI,
   'process audio': true,        // Sometimes we need some type of user interaction for beeing allowed to start audio processing. Might depend on the browser.
-  'volume': 0.9,
-  'loop': false,
+  'volume': 1,
+  'loop': true,
   'sound': sampleSounds['A'],
   'method': methodOptions.ILD,
   'stereoPosition': 0.5,        // [0..1] left <-> right
-  'maxHaasDelay': 20,           // In milleseconds
+  'headAbsorptionFactor': 0.5,  // [0..1] 0: no absorption, 1: full absorption
+  'earDistance': 0.2,           // In milliseconds
   'depth': 0.1,                 // [0..1] near <-> far
-}
+  'reverbEnabled': false,
+  'reverbDecay': 1,            // [0..1000] milliseconds
+  'reverbWet': 0.0              // [0..1] dry <-> wet
+};
 
-var player;
-var inputNode;
-var stereoNode;
-var mainVolumeNode;
+let player;
+let inputNode;
+let stereoNode;
+let mainVolumeNode;
 
-var leftVolumeNode;
-var rightVolumeNode;
-var leftDelayNode;
-var rightDelayNode;
+let leftVolumeNode;
+let rightVolumeNode;
+let leftDelayNode;
+let rightDelayNode;
+
+let reverbNode;
 
 function setup() {
   Tone.start();
@@ -56,107 +70,121 @@ function setup() {
 
   stereoNode = new Tone.Volume();  // Just using a volumeNode here for having a pass-through of our stereo signal
   mainVolumeNode = new Tone.Volume(Tone.gainToDb(params.volume)).toDestination();
-  prepareDepth();
+
+  reverbNode = new Tone.Reverb();
+
 }
 
-function prepareStereoPan() {
-  //     inputNode
-  //         |
-  //     splitNode
-  //     0 /    \ 1
-  // leftNode  rightNote
-  //     0 \    / 1
-  //      mergeNode
-  //         |
-  //     stereoNode
+function connectNodes() {
+  //          inputNode
+  //              |
+  //           splitNode
+  //             /  \
+  // leftVolumeNode rightVolumeNode
+  //            |    |
+  // leftDelayNode  rightDelayNode
+  //             \  /
+  //           mergeNode
+  //              |
+  //          stereoNode
+  //              |
+  //          reverbNode
+  //              |
+  //        mainVolumeNode
 
   const splitNode = new Tone.Split();
   const mergeNode = new Tone.Merge();  // Merges single channels (i.e. mono to stereo)
   inputNode.connect(splitNode);
 
-  splitNode.connect(leftVolumeNode, 0);
-  splitNode.connect(rightVolumeNode, 1);
+  if (params.method === methodOptions.ILD) {
+    splitNode.connect(leftVolumeNode, 0);
+    splitNode.connect(rightVolumeNode, 1);
 
-  leftVolumeNode.connect(mergeNode, 0, 0);
-  rightVolumeNode.connect(mergeNode, 0, 1);
+    leftVolumeNode.connect(mergeNode, 0, 0);
+    rightVolumeNode.connect(mergeNode, 0, 1);
+  } else if (params.method === methodOptions.ITD) {
+    splitNode.connect(leftDelayNode, 0);
+    splitNode.connect(rightDelayNode, 1);
+
+    leftDelayNode.connect(mergeNode, 0, 0);
+    rightDelayNode.connect(mergeNode, 0, 1);
+  } else if (params.method === methodOptions.Both) {
+    splitNode.connect(leftVolumeNode, 0);
+    splitNode.connect(rightVolumeNode, 1);
+
+    leftVolumeNode.connect(leftDelayNode);
+    rightVolumeNode.connect(rightDelayNode);
+
+    leftDelayNode.connect(mergeNode, 0, 0);
+    rightDelayNode.connect(mergeNode, 0, 1);
+  }
 
   mergeNode.connect(stereoNode);
-  onStereoPositionPan(params.stereoPosition, leftVolumeNode, rightVolumeNode);
+
+  if (params.reverbEnabled) {
+    stereoNode.connect(reverbNode);
+    reverbNode.connect(mainVolumeNode);
+  } else {
+    stereoNode.connect(mainVolumeNode);
+  }
 }
 
-// Shift the volume more to the direction where it should come from
-function onStereoPositionPan(stereoPosition) {
-  var leftGain = Math.min((1.0 - stereoPosition) * 2.0, 1.0);
-  var rightGain = Math.min(stereoPosition * 2.0, 1.0);
-  leftVolumeNode.volume.rampTo(Tone.gainToDb(leftGain), 0.0);
-  rightVolumeNode.volume.rampTo(Tone.gainToDb(rightGain), 0.0);
+function applyVolume(leftVector, rightVector) {
+
+  const rlSum = rightVector.clone().add(leftVector);
+  const rlDiff = rightVector.clone().sub(leftVector);
+  const headFactor = rlSum.dot(rlDiff) / rlSum.length() / 2.0;
+  const leftDistance = leftVector.length();
+  const rightDistance = rightVector.length();
+  let volumeLeft = 2.5 ** 2 / leftDistance ** 2;
+  let volumeRight = 2.5 ** 2 / rightDistance ** 2;
+
+  if (headFactor < 0) {
+    volumeLeft = volumeLeft * (1 + headFactor * params.headAbsorptionFactor);
+  } else {
+    volumeRight = volumeRight * (1 - headFactor * params.headAbsorptionFactor);
+  }
+
+  console.log("volume left: " + volumeLeft + ", volume right: " + volumeRight);
+
+  leftVolumeNode.volume.rampTo(Tone.gainToDb(volumeLeft), 0.0);
+  rightVolumeNode.volume.rampTo(Tone.gainToDb(volumeRight), 0.0);
 }
 
-// ===== START Task 6.2.1.b ===================================================
+function updateSoundBasedOn3DModel() {
+  const l = leftear.position.clone().sub(audioSource.position);
+  const r = rightear.position.clone().sub(audioSource.position);
+  applyVolume(l, r)
 
-function updateStereoAudio() {
-  const leftDistance = audioSource.position.distanceTo(leftear.position);
-  const rightDistance = audioSource.position.distanceTo(rightear.position);
-  console.log(leftDistance, rightDistance, leftDistance - rightDistance);
-  // ear distance is given in decimeters
-  var tDelay = ((leftDistance - rightDistance) / 10.0) / 343.0;
-  console.log(tDelay);
-
+  const leftDistance = l.length();
+  const rightDistance = r.length();
+  applyTimeDelay(leftDistance, rightDistance);
 }
 
-// ===== END Task 6.2.1.b =====================================================
+function applyTimeDelay(leftDistance, rightDistance) {
+  const earDistanceFactor = params.earDistance / 2.0;
+  const adjustedLeftDistance = leftDistance * earDistanceFactor;
+  const adjustedRightDistance = rightDistance * earDistanceFactor;
+  const deltaInMeters = (adjustedLeftDistance - adjustedRightDistance);
 
+  const timeDelay = deltaInMeters / 343.0;
 
-// ===== START Task 6.2.2 =====================================================
+  const delayLeft = timeDelay > 0 ? timeDelay : 0.0;
+  const delayRight = timeDelay < 0 ? -timeDelay : 0.0;
 
-// You will need:
-// var delayNode = new new Tone.Delay(0.0);  // DelayLength: [0..1] noDelay <-> maximumDelay, standart maximumDelay is 1 second
-// delayNode.delayTime.rampTo(length, time);  // Same as Tone.Volume
+  console.log("delay left: " + delayLeft + ", delay right: " + delayRight);
 
-function prepareHaasEffect() {
-  var mergeNode = new Tone.Merge();  // Merges single channels (i.e. mono to stereo)
-
-  // Setting to left channel (first channel '0' to first channel '0')
-  inputNode.connect(mergeNode, 0, 0);
-
-  // Setting to right channel (first channel '0' to second channel '1')
-  inputNode.connect(mergeNode, 0, 1);
-
-  // Send the merged (stereo) signal
-  mergeNode.connect(stereoNode);
-  onStereoPositionHaas(params.stereoPosition);
+  leftDelayNode.delayTime.rampTo(delayLeft, 0.0);
+  rightDelayNode.delayTime.rampTo(delayRight, 0.0);
 }
 
-function onStereoPositionHaas(stereoPosition) {
-  // ...
-}
-
-// ===== END Task 6.2.2 =======================================================
-
-
-// ===== START Task 6.2.3 =====================================================
-
-// You will need / can use:
-// var reverbNode = new Tone.Reverb();
-// reverbNode.decay = decayLength;  // 'length' of the reverb
-// reverbNode.wet = strength;  // effect-strength, [0..1] 0% <-> 100%
-
-var reverbNode;
-
-function prepareDepth() {
-
-  // Sending both to the output to remain some dry direct sound
-  stereoNode.connect(mainVolumeNode);
-
-  onDepth(params.depth);
-}
 
 // Many things are possible here
-function onDepth(depth) {
-  // ...
+function updateReverb(decay, wet) {
+  console.log("decay: " + decay + " wet: " + wet);
+  reverbNode.decay = decay;
+  reverbNode.wet = wet;
 }
-
-// ===== END Task 6.2.3 =======================================================
 
 
 // ############################################################################
@@ -169,6 +197,9 @@ const gui = new dat.GUI({ width: 300 });
 gui.add(params, 'showAnalyzer', false);
 gui.add(params, 'showSpatialAudioScene', false)
 .onChange(toggleSpatialAudioSceneVisibility);
+gui.add(params, 'controlMode', controlMode).onChange(() => {
+  applySoundModifications()
+});
 gui.add(params, 'process audio').onChange(() => {
   if (params['process audio']) {
     setupMethod();
@@ -198,24 +229,53 @@ gui.add(params, 'method', methodOptions).onChange(() => {
   setupMethod();
 });
 gui.add(params, 'stereoPosition', 0.0, 1.0).onChange(() => {
-  switch (params.method) {
-    case methodOptions.ILD:
-      onStereoPositionPan(params.stereoPosition);
-      break;
-    case methodOptions.ITD:
-      onStereoPositionHaas(params.stereoPosition);
-      break;
+  if (params.controlMode === controlMode.GUI) {
+    applySoundModifications();
   }
 });
-gui.add(params, 'maxHaasDelay', 0.0, 1000.0).onChange(() => {
-  if (params.method == methodOptions.ITD) {
-    setupMethod();
-    onStereoPositionHaas(params.stereoPosition);
+gui.add(params, 'earDistance', 0.0, 0.5).onChange(() => {
+  if (params.method === methodOptions.ITD) {
+    applySoundModifications();
   }
 });
-gui.add(params, 'depth', 0.0, 1.0).onChange(() => {
-  onDepth(params.depth);
+gui.add(params, 'headAbsorptionFactor', 0.0, 1.0).onChange(() => {
+    applySoundModifications();
 });
+gui.add(params, 'reverbEnabled').onChange(() => {
+  setupMethod();
+});
+gui.add(params, 'reverbDecay', 0.0, 10.0).onChange(() => {
+  updateReverb(params.reverbDecay, params.reverbWet);
+});
+gui.add(params, 'reverbWet', 0.0, 1.0).onChange(() => {
+  updateReverb(params.reverbDecay, params.reverbWet);
+});
+
+const leftEarGUI = new THREE.Vector2(-1, 0);
+const rightEarGUI = new THREE.Vector2(1, 0);
+
+function updateSoundBasedOnGUI() {
+  const source = new THREE.Vector2(
+    10 * -Math.cos(params.stereoPosition * Math.PI),
+    10 * Math.sin(params.stereoPosition * Math.PI)
+  );
+  const r = rightEarGUI.clone().sub(source);
+  const l = leftEarGUI.clone().sub(source);
+  applyVolume(l, r)
+
+  const leftDistance = l.length();
+  const rightDistance = r.length();
+  applyTimeDelay(leftDistance, rightDistance);
+}
+
+function applySoundModifications() {
+  if (params.controlMode === controlMode.GUI) {
+    updateSoundBasedOnGUI();
+  } else if (params.controlMode === controlMode.WASD) {
+    updateSoundBasedOn3DModel();
+  }
+  updateReverb(params.reverbDecay, params.reverbWet);
+}
 
 function setupMethod() {
   if (inputNode)
@@ -225,27 +285,20 @@ function setupMethod() {
   if (reverbNode)
     reverbNode.disconnect();
   setup();
-
-  switch (params.method) {
-    case methodOptions.ILD:
-      prepareStereoPan();
-      break;
-    case methodOptions.ITD:
-      prepareHaasEffect();
-      break;
-  }
+  connectNodes();
+  applySoundModifications();
   prepareSpectrumAnalyzer();
 }
 
-var analyzerNode;
+let analyzerNode;
 
 function prepareSpectrumAnalyzer() {
   analyzerNode = new Tone.FFT(2048);
   mainVolumeNode.connect(analyzerNode);
 }
 
-var canvas = document.getElementsByTagName("canvas")[0];
-var ctx = canvas.getContext("2d");
+const canvas = document.getElementsByTagName("canvas")[0];
+const ctx = canvas.getContext("2d");
 ctx.strokeStyle = '#000000';
 ctx.lineWidth = 1;
 
@@ -263,10 +316,10 @@ Tone.loaded().then(() => {
 const scene = new THREE.Scene();
 
 // The camera
-var width = window.innerWidth;
-var height = window.innerHeight;
-var k = width / height;
-var s = 5;
+const width = window.innerWidth;
+const height = window.innerHeight;
+const k = width / height;
+const s = 15;
 const camera = new THREE.OrthographicCamera(-s * k, s * k, s, -s, 1, 1000);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -275,7 +328,7 @@ renderer.setClearColor(0xaaaaaa, 1);
 document.body.appendChild(renderer.domElement);
 
 // Add a light
-var light = new THREE.PointLight(0xFFFFFF);
+const light = new THREE.PointLight(0xFFFFFF);
 light.position.set(0, 5, 5);
 scene.add(light);
 
@@ -296,11 +349,11 @@ nose = new THREE.Mesh(
   new THREE.ConeGeometry(0.2, 0.2, 32),
   new THREE.MeshPhongMaterial({ color: 0xffff00, side: THREE.DoubleSide, wireframe: false }));
 
-var sourceR = 0.5;
+let sourceR = 0.5;
 audioSource = new THREE.Mesh(
   new THREE.SphereGeometry(1, 32, 32),
   new THREE.MeshPhongMaterial({ color: 0x00ff00, side: THREE.DoubleSide, wireframe: false }));
-audioSource.position.y += 2.5;
+audioSource.position.y += 10;
 
 update_ears();
 
@@ -340,12 +393,13 @@ function render() {
 
   if (params.showAnalyzer) {
 
-    var spectrum = analyzerNode.getValue();
+    const spectrum = analyzerNode.getValue();
 
     ctx.beginPath();
-    spectrum.forEach((val, i) => {
+    for (const val of spectrum) {
+      const i = spectrum.indexOf(val);
       ctx.lineTo(i, 300 + Tone.dbToGain(val) * -10000);
-    });
+    }
     ctx.stroke();
 
   }
@@ -354,12 +408,10 @@ function render() {
   renderer.render(scene, camera);
 
   // Visualize audio
-  var sum = 0.5;
-  var spectrum = analyzerNode.getValue();
-  spectrum.forEach((val, i) => {
+  let sum = 0.5;
+  for (const val of analyzerNode.getValue()) {
     sum += Tone.dbToGain(val);
-  });
-  //console.log(sum);
+  }
   sourceR = sum;
 
   audioSource.scale.x = sourceR;
@@ -370,24 +422,27 @@ function render() {
 }
 
 // Movement speed - please calibrate these values if needed
-var xSpeed = 0.1;
-var ySpeed = 0.1;
+const xSpeed = 0.25;
+const ySpeed = 0.25;
 
 document.addEventListener("keydown", onDocumentKeyDown, false);
 
 function onDocumentKeyDown(event) {
-  var keyCode = event.which;
-  if (keyCode == 87) {
+  if (params.controlMode !== controlMode.WASD) {
+    return;
+  }
+  const keyCode = event.which;
+  if (keyCode === 87) {
     head.position.y += ySpeed; // W
-  } else if (keyCode == 83) {
+  } else if (keyCode === 83) {
     head.position.y -= ySpeed; // S
-  } else if (keyCode == 65) {
+  } else if (keyCode === 65) {
     head.position.x -= xSpeed; // A
-  } else if (keyCode == 68) {
+  } else if (keyCode === 68) {
     head.position.x += xSpeed; // D
-  } else if (keyCode == 32) {
+  } else if (keyCode === 32) {
     head.position.set(0, 0, 0);
   }
   update_ears();
-  updateStereoAudio();
-};
+  updateSoundBasedOn3DModel();
+}

@@ -46,6 +46,8 @@ let mainVolumeNode;
 
 let leftVolumeNode;
 let rightVolumeNode;
+let leftEQNode;
+let rightEQNode;
 let leftDelayNode;
 let rightDelayNode;
 
@@ -64,6 +66,9 @@ function setup() {
 
   leftVolumeNode = new Tone.Volume();
   rightVolumeNode = new Tone.Volume();
+
+  leftEQNode = new Tone.EQ3();
+  rightEQNode = new Tone.EQ3();
 
   leftDelayNode = new Tone.Delay(0.0);
   rightDelayNode = new Tone.Delay(0.0);
@@ -97,11 +102,11 @@ function connectNodes() {
   inputNode.connect(splitNode);
 
   if (params.method === methodOptions.ILD) {
-    splitNode.connect(leftVolumeNode, 0);
-    splitNode.connect(rightVolumeNode, 1);
+      splitNode.connect(leftVolumeNode, 0);
+      splitNode.connect(rightVolumeNode, 1);
 
-    leftVolumeNode.connect(mergeNode, 0, 0);
-    rightVolumeNode.connect(mergeNode, 0, 1);
+      leftVolumeNode.connect(mergeNode, 0, 0);
+      rightVolumeNode.connect(mergeNode, 0, 1);
   } else if (params.method === methodOptions.ITD) {
     splitNode.connect(leftDelayNode, 0);
     splitNode.connect(rightDelayNode, 1);
@@ -130,14 +135,13 @@ function connectNodes() {
 }
 
 function applyVolume(leftVector, rightVector) {
-
   const rlSum = rightVector.clone().add(leftVector);
   const rlDiff = rightVector.clone().sub(leftVector);
   const headFactor = rlSum.dot(rlDiff) / rlSum.length() / 2.0;
   const leftDistance = leftVector.length();
   const rightDistance = rightVector.length();
-  let volumeLeft = 2.5 ** 2 / leftDistance ** 2;
-  let volumeRight = 2.5 ** 2 / rightDistance ** 2;
+  let volumeLeft = 2.5 ** 1 / leftDistance ** 1;
+  let volumeRight = 2.5 ** 1 / rightDistance ** 1;
 
   if (headFactor < 0) {
     volumeLeft = volumeLeft * (1 + headFactor * params.headAbsorptionFactor);
@@ -256,8 +260,8 @@ const rightEarGUI = new THREE.Vector2(1, 0);
 
 function updateSoundBasedOnGUI() {
   const source = new THREE.Vector2(
-    10 * -Math.cos(params.stereoPosition * Math.PI),
-    10 * Math.sin(params.stereoPosition * Math.PI)
+    3.5 * -Math.cos(params.stereoPosition * Math.PI),
+    3.5 * Math.sin(params.stereoPosition * Math.PI)
   );
   const r = rightEarGUI.clone().sub(source);
   const l = leftEarGUI.clone().sub(source);
@@ -398,7 +402,7 @@ function render() {
     ctx.beginPath();
     for (const val of spectrum) {
       const i = spectrum.indexOf(val);
-      ctx.lineTo(i, 300 + Tone.dbToGain(val) * -10000);
+      ctx.lineTo(i, 200 + Tone.dbToGain(val) * -4000);
     }
     ctx.stroke();
 

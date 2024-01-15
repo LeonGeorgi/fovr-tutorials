@@ -38,9 +38,14 @@ class BounceBehavior extends Behavior {
 
   update(mesh, deltaTime) {
     this.velocity = this.velocity - 9.81 * deltaTime;
-    const s = mesh.position.y + this.velocity * deltaTime;
+    let s = mesh.position.y + this.velocity * deltaTime;
     if (s < -2) {
+      s = -2;
       this.velocity = -this.velocity;
+    }
+    if (s > this.amplitude) {
+      s = this.amplitude;
+      this.velocity = 0;
     }
     mesh.position.y = s
     console.log(mesh.position.y)

@@ -1,0 +1,1 @@
+import { TagComponent, Component, Types } from "https://ecsyjs.github.io/ecsy/build/ecsy.module.js";

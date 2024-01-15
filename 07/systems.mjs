@@ -1,0 +1,1 @@
+import { System } from "https://ecsyjs.github.io/ecsy/build/ecsy.module.js";

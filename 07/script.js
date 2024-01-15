@@ -134,25 +134,57 @@ scene.add(hemisphereLight);
 // Make the camera further from the cube, so we can see it better
 camera.position.z = 5;
 
-const cube = new Cube(2,
-  new SpinBehavior(2),
-  { x: -1, y: 0, z: 0 }
-);
+const entities = [];
 
-const ball = new Ball(
-  1,
-  new BounceBehavior(5, 2),
-  { x: 3, y: 0, z: 0 }
-);
-
-const tetrahedron = new Tetrahedron(3,
-  new CircleBehavior(4, { x: -1, y: 0, z: 0 }, 2),
-  { x: 0, y: 0, z: 0 }
-);
-
-scene.add(cube.mesh);
-scene.add(ball.mesh);
-scene.add(tetrahedron.mesh);
+for (let i = 0; i < 50; i++) {
+  // select random class
+  const random = Math.random();
+  let entityClass;
+  if (random < 0.33) {
+    entityClass = Cube
+  } else if (random < 0.66) {
+    entityClass = Ball
+  } else {
+    entityClass = Tetrahedron
+  }
+  // random position
+  const x = Math.random() * 10 - 5;
+  const y = Math.random() * 4 - 2;
+  const z = Math.random() * 3 - 5;
+  // random behavior
+  let behaviorP = Math.random();
+  if (entityClass === Ball && behaviorP < 0.33) {
+    behaviorP = behaviorP * 2 + 0.33;
+  }
+  let behavior
+  if (behaviorP < 0.33) {
+    // random speed
+    const speed = Math.random() * 10;
+    behavior = new SpinBehavior(speed)
+  } else if (behaviorP < 0.66) {
+    // random speed
+    const speed = Math.random() * 5;
+    // random amplitude
+    const amplitude = Math.random() * 5;
+    behavior = new BounceBehavior(speed, amplitude)
+  } else {
+    // random speed
+    const speed = Math.random() * 4;
+    // random center
+    const center = {
+      x: Math.random() * 10 - 5,
+      y: Math.random() * 10 - 5,
+      z: Math.random() * 10 - 5,
+    }
+    // random radius
+    const radius = Math.random() * 3;
+    behavior = new CircleBehavior(speed, center, radius)
+  }
+  // create entity
+  const entity = new entityClass(i, behavior, { x, y, z });
+  entities.push(entity);
+  scene.add(entity.mesh);
+}
 
 let lastTime = Date.now();
 
@@ -163,9 +195,9 @@ function render() {
   // Render the scene and the camera
   renderer.render(scene, camera);
 
-  cube.update(deltaTime);
-  ball.update(deltaTime);
-  tetrahedron.update(deltaTime);
+  for (const entity of entities) {
+    entity.update(deltaTime);
+  }
 
   // Make it call the render() function about every 1/60 second
   requestAnimationFrame(render);

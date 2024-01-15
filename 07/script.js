@@ -48,7 +48,21 @@ class BounceBehavior extends Behavior {
       this.velocity = 0;
     }
     mesh.position.y = s
-    console.log(mesh.position.y)
+  }
+}
+
+class CircleBehavior extends Behavior {
+  constructor(speed, center, radius) {
+    super(speed);
+    this.center = center;
+    this.radius = radius;
+    this.angle = 0;
+  }
+
+  update(mesh, deltaTime) {
+    this.angle += this.speed * deltaTime;
+    mesh.position.x = this.center.x + this.radius * Math.cos(this.angle);
+    mesh.position.y = this.center.y + this.radius * Math.sin(this.angle);
   }
 }
 
@@ -60,7 +74,6 @@ class Cube extends BaseObject {
       metalness: 0,
     });
     const mesh = new THREE.Mesh(geometry, material);
-    console.log(mesh.rotation.x);
     super(id, behavior, mesh);
 
     this.mesh.position.set(position.x, position.y, position.z);
@@ -70,6 +83,20 @@ class Cube extends BaseObject {
 class Ball extends BaseObject {
   constructor(id, behavior, position) {
     const geometry = new THREE.SphereGeometry(0.5, 32, 32);
+    const material = new THREE.MeshPhysicalMaterial({
+      color: 0xaaaaaa,
+      metalness: 0,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    super(id, behavior, mesh);
+
+    this.mesh.position.set(position.x, position.y, position.z);
+  }
+}
+
+class Tetrahedron extends BaseObject {
+  constructor(id, behavior, position) {
+    const geometry = new THREE.TetrahedronGeometry(1);
     const material = new THREE.MeshPhysicalMaterial({
       color: 0xaaaaaa,
       metalness: 0,
@@ -109,17 +136,23 @@ camera.position.z = 5;
 
 const cube = new Cube(2,
   new SpinBehavior(2),
-  { x: 0, y: 0, z: 0 }
+  { x: -1, y: 0, z: 0 }
 );
 
 const ball = new Ball(
   1,
   new BounceBehavior(5, 2),
-  { x: 2, y: 0, z: 0 }
+  { x: 3, y: 0, z: 0 }
+);
+
+const tetrahedron = new Tetrahedron(3,
+  new CircleBehavior(4, { x: -1, y: 0, z: 0 }, 2),
+  { x: 0, y: 0, z: 0 }
 );
 
 scene.add(cube.mesh);
 scene.add(ball.mesh);
+scene.add(tetrahedron.mesh);
 
 let lastTime = Date.now();
 
@@ -132,6 +165,7 @@ function render() {
 
   cube.update(deltaTime);
   ball.update(deltaTime);
+  tetrahedron.update(deltaTime);
 
   // Make it call the render() function about every 1/60 second
   requestAnimationFrame(render);

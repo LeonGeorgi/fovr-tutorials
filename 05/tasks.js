@@ -46,10 +46,11 @@ function applyDoubleExponentialSmoothing(positionVector, alpha, beta) {
   }
   const smoothedPosition = lastDEPositionVector.clone().add(lastDEVelocityVector);
   smoothedPosition.lerp(positionVector, alpha);
-  lastDEPositionVector = smoothedPosition;
-
   const smoothedVelocity = lastDEVelocityVector.clone();
+
   smoothedVelocity.lerp(smoothedPosition.clone().sub(lastDEPositionVector), beta);
+  console.log(smoothedVelocity);
+  lastDEPositionVector = smoothedPosition;
   lastDEVelocityVector = smoothedVelocity;
 
   return smoothedPosition;
@@ -70,7 +71,6 @@ export function updateSingleExponential(measurement, params) {
 
 export function updateDoubleExponential(measurement, params) {
   const smoothing = applyDoubleExponentialSmoothing(measurement, params.DEAlpha, params.DEBeta);
-  console.log(measurement, smoothing);
   return smoothing;
 }
 
